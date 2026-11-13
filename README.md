@@ -9,4 +9,4 @@ Speel alleen tegen de computer of met maximaal vier spelers tegen elkaar, elk op
 - Met punten uit races en stunts speel je nieuwe auto's vrij. Punten en auto's blijven op je eigen toestel staan.
 - Telefoon of tablet: houd het toestel liggend. Toetsenbord: pijltjes of A/D.
 
-Deze repository bevat alleen de gepubliceerde spelbestanden (v3.0.0).
+Deze repository bevat alleen de gepubliceerde spelbestanden (v4.0.0).

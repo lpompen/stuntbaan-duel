@@ -47,8 +47,43 @@
   // 16 = bodem van een ravijn
   const F_LOOP = 1, F_CLIFF = 2, F_UNSAFE = 4, F_INLOOP = 8, F_PIT = 16;
 
+  // benzine: verbruik per simulatieseconde bij fuelRate 1 (stationair + extra met gas op de grond)
+  const FUEL_IDLE = 0.024, FUEL_GAS = 0.047, FUEL_CAN = 0.4, FUEL_GAP = 130, EMPTY_T = 1.5;
+  // rotsblokken: duw je ze ROCK_PUSH meter voor je uit, dan rollen ze van de baan af
+  const ROCK_FRIC = 4.5, ROCK_PUSH = 7, ROCK_FRONT = 1.6;
+
+  // bouwstenen voor levels (allemaal uit banen die de test al haalden), van makkelijk naar zwaar
+  const PIECE = {
+    hills: [['hill', 14, 1.1], ['hill', 14, 1.1], ['hill', 14, 1.1], ['flat', 14]],
+    rock: [['flat', 10], ['rock', 1.0], ['flat', 10]],
+    rocks2: [['flat', 10], ['rock', 1.0], ['rock', 1.15], ['flat', 10]],
+    boulder: [['flat', 14], ['rock', 1.45], ['flat', 14]],
+    climb: [['flat', 16], ['boost', 8], ['slope', 40, 12], ['flat', 12], ['slope', 50, -12], ['flat', 30]],
+    wall: [['flat', 16], ['boost', 10], ['slope', 30, 13], ['flat', 10], ['hill', 40, 6], ['slope', 46, -13], ['flat', 34]],
+    bump: [['hill', 20, 2], ['flat', 30]],
+    loop: [['boost', 10], ['flat', 6], ['loop', 6.5], ['flat', 16]],
+    hop: [['slope', 34, 6], ['flat', 10], ['ramp', 14, 2.4, 5], ['slope', 40, -5], ['flat', 34]],
+    dune: [['hill', 28, 2.5], ['flat', 6], ['slope', 36, -7], ['boost', 10], ['ramp', 16, 2.8, 6], ['slope', 44, -4], ['flat', 34]],
+    gapS: [['slope', 30, -4], ['boost', 10], ['gap', 14, 2.2, 12, 1], ['slope', 40, -3], ['flat', 40]],
+    loop2: [['boost', 10], ['flat', 6], ['loop', 7], ['flat', 6], ['loop', 7], ['flat', 14]],
+    jump: [['slope', 30, 5], ['flat', 8], ['ramp', 14, 2.6, 8], ['slope', 50, -6], ['flat', 44]],
+    gapF: [['boost', 10], ['gap', 14, 2.4, 14, 0], ['flat', 70]],
+    big: [['hill', 20, 2.2], ['hill', 20, 2.2], ['flat', 10], ['slope', 40, 8], ['flat', 10], ['boost', 8], ['ramp', 18, 3.6, 12], ['slope', 60, -8], ['flat', 50]],
+    gapM: [['slope', 30, 5], ['flat', 10], ['boost', 8], ['gap', 16, 2.6, 16, 2], ['slope', 50, -5], ['flat', 50]],
+    loop3: [['boost', 10], ['flat', 6], ['loop', 7], ['flat', 5], ['loop', 8], ['flat', 5], ['loop', 7], ['flat', 14]],
+    gapL: [['slope', 40, -6], ['boost', 8], ['gap', 16, 2.8, 20, 3], ['slope', 50, -4], ['flat', 50]],
+    gapXL: [['flat', 12], ['slope', 46, 11], ['flat', 10], ['boost', 10], ['gap', 20, 4.2, 20, 16], ['slope', 70, -10], ['flat', 60]]
+  };
+  function level(id, name, theme, no, pieces) {
+    let parts = [['flat', 20]];
+    for (const k of pieces) parts = parts.concat(PIECE[k]);
+    parts.push(['flat', 30], ['finish'], ['flat', 70]);
+    return { id: id, name: name, theme: theme, no: no, parts: parts };
+  }
+  const NIVEAU = ['', 'Heel makkelijk', 'Makkelijk', 'Gemiddeld', 'Pittig', 'Zwaar'];
+
   // ['gap', aanloop, hoogte, breedte, val] = schans met een ravijn erachter
-  const TRACKS = [
+  const ORIGINAL = [
     {
       id: 'zand', name: 'Zandkloof', theme: 'desert', level: 'Makkelijk',
       parts: [
@@ -122,17 +157,54 @@
       ]
     }
   ];
+  const ORG = {}; for (const t of ORIGINAL) ORG[t.id] = t;
+  // originele baan met extra bouwstenen vlak na de start
+  const withNo = (t, no, extra) => {
+    let parts = t.parts.slice(0, 1);
+    for (const k of extra || []) parts = parts.concat(PIECE[k]);
+    return Object.assign({}, t, { no: no, parts: parts.concat(t.parts.slice(1)) });
+  };
+
+  // per thema 5 levels, van makkelijk naar zwaar; haal je een level, dan gaat het volgende open
+  const THEME_LIST = [
+    { id: 'desert', name: 'Woestijn', icon: '🏜️' },
+    { id: 'neon', name: 'Neonstad', icon: '🌃' },
+    { id: 'ice', name: 'IJsland', icon: '❄️' }
+  ];
+  const TRACKS = [
+    level('woestijn-1', 'Zandpad', 'desert', 1, ['bump', 'rock', 'hills', 'loop', 'hop']),
+    withNo(ORG.zand, 2, ['rock']),
+    level('woestijn-3', 'Cactusduik', 'desert', 3, ['dune', 'rock', 'gapS', 'loop', 'climb', 'gapF']),
+    withNo(ORG.kloof, 4, ['rock', 'climb']),
+    level('woestijn-5', 'Woestijnreus', 'desert', 5, ['gapS', 'boulder', 'gapM', 'wall', 'loop2', 'gapL', 'rocks2', 'gapXL']),
+    level('neon-1', 'Lichtjesweg', 'neon', 1, ['bump', 'loop', 'rock', 'hills', 'hop']),
+    level('neon-2', 'Neonlus', 'neon', 2, ['jump', 'loop', 'climb', 'rock', 'loop2']),
+    withNo(ORG.neon, 3, ['rocks2']),
+    withNo(ORG.daken, 4, ['rock', 'climb']),
+    level('neon-5', 'Neonkoning', 'neon', 5, ['loop2', 'rocks2', 'gapM', 'wall', 'big', 'loop3', 'boulder', 'gapL']),
+    level('ijs-1', 'Sneeuwpad', 'ice', 1, ['hills', 'rock', 'loop', 'bump', 'hop']),
+    level('ijs-2', 'Glijbaan', 'ice', 2, ['hop', 'loop2', 'rock', 'climb', 'gapS']),
+    level('ijs-3', 'Bevroren kloof', 'ice', 3, ['jump', 'climb', 'gapF', 'loop', 'boulder', 'gapM']),
+    level('ijs-4', 'Poolster', 'ice', 4, ['loop3', 'rocks2', 'big', 'wall', 'gapL', 'hills']),
+    withNo(ORG.ijs, 5, ['boulder', 'wall'])
+  ];
+  for (const t of TRACKS) t.level = NIVEAU[t.no];
 
   function buildTrack(def) {
     const pts = [];
     let x = 0, y = 0, layer = 0, finishIdx = -1;
-    const padsIdx = [], loops = [], gaps = [], zones = [];
+    const padsIdx = [], loops = [], gaps = [], zones = [], rockIdx = [];
     const add = (px, py, fl) => { pts.push({ x: px, y: py, layer: layer, fl: fl | 0 }); };
     add(0, -9, F_CLIFF | F_UNSAFE);   // muur achter de start
     add(0, 0, 0);
     for (const p of def.parts) {
       const kind = p[0];
-      if (kind === 'flat' || kind === 'boost') {
+      if (kind === 'rock') {
+        // rotsblok op een vlak stuk van 26 m, 8 m na het begin
+        const L = 26, n = Math.ceil(L / STEP);
+        for (let i = 1; i <= n; i++) { add(x + L * i / n, y, 0); if (i === Math.round(8 / STEP)) rockIdx.push([pts.length - 1, p[1]]); }
+        x += L;
+      } else if (kind === 'flat' || kind === 'boost') {
         const L = p[1], n = Math.ceil(L / STEP), i0 = pts.length - 1;
         for (let i = 1; i <= n; i++) add(x + L * i / n, y, 0);
         x += L;
@@ -209,8 +281,22 @@
       const sa = T.S[z[0]] - z[2], sb = T.S[z[1]] + z[3];
       for (let i = 2; i < n; i++) if (T.S[i] >= sa && T.S[i] <= sb) T.FL[i] |= F_UNSAFE;
     }
+    T.rocks = rockIdx.map(q => ({ s: T.S[q[0]], r: q[1], m: 1.3 * q[1] * q[1] }));
+    // jerrycans met benzine: om de zoveel meter op een vlak stuk, 1 m boven het wegdek
+    T.fuels = [];
+    const gapM = def.fuelGap || FUEL_GAP;
+    let want = T.startS + 80;
+    for (let i = 2; i < n - 2 && want < T.finishS - 30; i++) {
+      if (T.S[i] < want) continue;
+      if (T.rocks.some(r => Math.abs(r.s - T.S[i]) < 20)) continue;
+      const bad = (T.FL[i] | T.FL[i + 1] | T.FL[i - 1]) & (F_LOOP | F_CLIFF | F_PIT | F_INLOOP);
+      if (bad || Math.abs(T.TY[i]) > 0.25 || (T.FL[i] & F_UNSAFE && Math.abs(T.TY[i]) > 0.08)) continue;
+      T.fuels.push({ s: T.S[i], seg: i, x: T.X[i] + T.TY[i] * 1.0, y: T.Y[i] - T.TX[i] * 1.0 });
+      want = T.S[i] + gapM;
+    }
     return T;
   }
+  function nextFuel(T, s) { let k = 0; while (k < T.fuels.length && T.fuels[k].s < s - 1) k++; return k; }
 
   // punt op de baan bij booglengte s
   function pointAt(T, s, out) {
@@ -222,7 +308,7 @@
     return out;
   }
 
-  const _c = { seg: 0, nx: 0, ny: 0, sd: 0, u: 0 };
+  const _c = { seg: 0, nx: 0, ny: 0, sd: 0, u: 0 }, _rp = {};
   // dichtstbijzijnde punt op de baan binnen een venster rond 'seg'. De baan is eenzijdig:
   // de rijkant is de linkernormaal van de rijrichting. 'wide' = in de lucht, ruimer zoeken.
   function closest(T, px, py, seg, wide) {
@@ -255,7 +341,9 @@
       cps: POINTS.map(() => ({ seg: 0, u: 0, on: false, pen: 0, spin: 0 })),
       s: 0, boostT: 0, airT: 0, flipAcc: 0, wheelsOn: 0, roofOn: 0,
       stuckT: 0, startSeg: 2, finished: false, ticks: 0, respawns: 0, dead: 0,
-      vmaxK: 1, spec: CAR_SPECS[(design | 0) % CAR_SPECS.length], ev: []
+      vmaxK: 1, spec: CAR_SPECS[(design | 0) % CAR_SPECS.length], ev: [],
+      fuel: 1, fuelRate: 1, fuelNext: 0, emptyT: 0, out: false,
+      rocks: (T.rocks || []).map(r => ({ s: r.s, s0: r.s, r: r.r, m: r.m, v: 0, off: false, offT: 0 }))
     };
     const p = pointAt(T, T.startS, {});
     car.startSeg = p.seg;
@@ -271,8 +359,9 @@
     car.vx = car.vy = car.w = 0;
     for (const cp of car.cps) { cp.seg = seg; cp.on = false; cp.pen = 0; cp.u = 0; }
     car.boostT = 0; car.airT = 0; car.flipAcc = 0; car.stuckT = 0; car.dead = 0;
-    car.wheelsOn = 0; car.roofOn = 0;
+    car.wheelsOn = 0; car.roofOn = 0; car.emptyT = 0;
     car.s = T.S[seg];
+    if (T.fuels) car.fuelNext = nextFuel(T, car.s);   // terug achter een jerrycan: die ligt er weer
   }
 
   // waar kom je terug na een crash bij segment 'seg'
@@ -295,13 +384,16 @@
   }
 
   function stepCar(car, inp, T, dt) {
-    if (!car.finished) car.ticks++;
+    const done = car.finished || car.out;
+    if (!done) car.ticks++;
     if (car.dead > 0) {
       car.dead -= dt;
       if (car.dead <= 0) respawn(car, T);
       return;
     }
-    const gas = inp.gas ? 1 : 0, brake = inp.brake ? 1 : 0, spec = car.spec;
+    const brake = inp.brake ? 1 : 0, spec = car.spec;
+    // zonder benzine trekt de motor niet meer; kantelen in de lucht gaat wel door
+    const gasIn = inp.gas ? 1 : 0, gas = gasIn && car.fuel > 0 ? 1 : 0;
     const ca = Math.cos(car.a), sa = Math.sin(car.a);
     const boosting = car.boostT > 0;
     let fx = 0, fy = G, tq = 0, wheelsOn = 0, roofOn = 0, impact = 0;
@@ -321,7 +413,7 @@
             Fn = K1 * pen + (pen > SOFT ? K2 * (pen - SOFT) : 0) - (vn > 0 ? C_REB : C1) * vn;
             if (Fn < 0) Fn = 0; else if (Fn > FMAX) Fn = FMAX;
             wheelsOn++;
-            if (car.finished) { Ft = vt > 0.8 ? -BRAKE : -vt * 4; }
+            if (done) { Ft = vt > 0.8 ? -BRAKE : -vt * 4; }
             else if (gas && !brake) {
               const vm = (boosting ? VBOOST : VMAX * car.vmaxK) * spec.top;
               if (vt < vm) { const q = Math.max(vt, 0) / vm; Ft = ENGINE * spec.acc * (1 - q * q * q); }
@@ -351,7 +443,7 @@
 
     if (wheelsOn === 0) {
       car.airT += dt;
-      if (!car.finished) tq += INERTIA * AIR_ACC * spec.air * (brake - gas);
+      if (!done) tq += INERTIA * AIR_ACC * spec.air * (brake - gasIn);
       tq -= INERTIA * AIR_DAMP * car.w;
     } else {
       if (car.airT > 0.25) {
@@ -379,7 +471,39 @@
     car.s = (T.S[c0.seg] + c0.u + T.S[c1.seg] + c1.u) / 2;
     car.wheelsOn = wheelsOn; car.roofOn = roofOn;
 
-    if (wheelsOn > 0 && !car.finished) {
+    if (!done && car.fuelRate > 0) {
+      car.fuel -= (FUEL_IDLE + (gas && wheelsOn > 0 ? FUEL_GAS : 0)) * car.fuelRate * dt;
+      if (car.fuel < 0) car.fuel = 0;
+    }
+    if (!done && T.fuels) {
+      const fu = T.fuels[car.fuelNext];
+      if (fu && car.s > fu.s - 2.5) {
+        if (Math.hypot(car.x - fu.x, car.y - fu.y) < 2.6) {
+          car.fuel = Math.min(1, car.fuel + FUEL_CAN); car.fuelNext++; car.ev.push(['fuel', car.fuelNext - 1]);
+        } else if (car.s > fu.s + 3) car.fuelNext++;   // gemist (eroverheen gesprongen)
+      }
+    }
+
+    // rotsblokken voor je uit duwen (iedere auto heeft ze op zijn eigen baan)
+    for (const R of car.rocks) {
+      if (R.off) { R.offT += dt; continue; }
+      if (R.s - car.s > 12 || car.s - R.s > 6) continue;
+      const p = pointAt(T, R.s, _rp), rx = p.x + p.ty * R.r, ry = p.y - p.tx * R.r;
+      const gapd = R.s - R.r - (car.s + ROCK_FRONT);
+      if (gapd < 0 && Math.hypot(car.x - rx, car.y - ry) < R.r + 2.2) {
+        const vt = car.vx * p.tx + car.vy * p.ty;
+        if (vt > R.v) {
+          const vn = (vt + R.v * R.m) / (1 + R.m), dv = vn - vt;
+          car.vx += dv * p.tx; car.vy += dv * p.ty; R.v = vn;
+          if (-dv > 6) car.ev.push(['rockhit', -dv]);
+        }
+        car.x += gapd * p.tx; car.y += gapd * p.ty;
+      }
+      R.v = Math.max(0, R.v - ROCK_FRIC * dt); R.s += R.v * dt;
+      if (R.s - R.s0 > ROCK_PUSH) { R.off = true; R.v = Math.max(R.v, 3); car.ev.push(['rockoff', 0]); }
+    }
+
+    if (wheelsOn > 0 && !done) {
       for (const pad of T.pads) {
         if (car.s >= pad.s0 && car.s <= pad.s1 + 1) {
           if (car.boostT < 0.2) car.ev.push(['boost', 0]);
@@ -389,8 +513,11 @@
     }
 
     if (wheelsOn < 2 && sp < 0.6) car.stuckT += dt; else car.stuckT = 0;
-    if (!car.finished) {
+    if (!done) {
       if (car.s >= T.finishS) { car.finished = true; car.ev.push(['finish', 0]); return; }
+      // benzine op en stilgevallen = uitgeschakeld
+      if (car.fuel <= 0 && wheelsOn > 0 && sp < 1.0) { car.emptyT += dt; if (car.emptyT > EMPTY_T) { car.out = true; car.ev.push(['nofuel', 0]); return; } }
+      else car.emptyT = 0;
       if (roofOn > 0) { explode(car, 'roof'); return; }
       for (const gp of T.gaps) {
         if (car.x > gp.x0 && car.x < gp.x1 && car.y > gp.ky) { explode(car, 'pit'); return; }
@@ -417,7 +544,8 @@
   }
 
   return {
-    G: G, DT: DT, POINTS: POINTS, TRACKS: TRACKS, VMAX: VMAX, CAR_SPECS: CAR_SPECS, DEAD_T: DEAD_T,
+    G: G, DT: DT, POINTS: POINTS, TRACKS: TRACKS, THEMES: THEME_LIST, VMAX: VMAX, CAR_SPECS: CAR_SPECS, DEAD_T: DEAD_T,
+    FUEL_CAN: FUEL_CAN, nextFuel: nextFuel,
     F_LOOP: F_LOOP, F_CLIFF: F_CLIFF, F_UNSAFE: F_UNSAFE, F_INLOOP: F_INLOOP, F_PIT: F_PIT,
     buildTrack: buildTrack, pointAt: pointAt, newCar: newCar, stepCar: stepCar,
     respawn: respawn, respawnSeg: respawnSeg, placeAt: placeAt, botInput: botInput, wrap: wrap

@@ -2,9 +2,9 @@
 (() => {
   'use strict';
   const E = window.Engine;
-  const VERSION = '3.0.0';
+  const VERSION = '4.0.0';
   const TS = 0.8;   // tempo: simulatieseconden per echte seconde
-  const PEER_PREFIX = 'stuntbaanduel-v3-';
+  const PEER_PREFIX = 'stuntbaanduel-v4-';
   const $ = id => document.getElementById(id);
   const cv = $('cv'), glc = $('gl'), fxc = $('fx'), g2 = cv.getContext('2d'), gfx = fxc.getContext('2d');
   let g = g2;   // waar de 2D-tekenfuncties op dat moment op tekenen
@@ -34,13 +34,13 @@
   // stats = acceleratie, topsnelheid, luchtcontrole, boost (uit Engine.CAR_SPECS)
   const CARS = [
     { name: 'Vlam', cost: 0, tag: 'Allrounder zonder zwakke plek', color: '#e8382f', dark: '#8a130f', light: '#ff8a70', accent: '#ffd23f', rim: '#d9dee8' },
-    { name: 'Zandvlo', cost: 250, tag: 'Snel weg en wendbaar, lage top', color: '#f5b921', dark: '#a56600', light: '#ffe58a', accent: '#262a35', rim: '#f1f1f1' },
-    { name: 'Pijl', cost: 500, tag: 'Hoge top, traag op gang en log in de lucht', color: '#2f8bff', dark: '#0f3590', light: '#9ccdff', accent: '#7df9ff', rim: '#7df9ff' },
-    { name: 'Brok', cost: 800, tag: 'Sterke boost, draait traag in de lucht', color: '#39b54a', dark: '#135a27', light: '#97e89b', accent: '#f4f4f4', rim: '#c9ced8' },
-    { name: 'Kever', cost: 1200, tag: 'Saltokoning, maar geen sprinter', color: '#9b5de5', dark: '#4b2389', light: '#d0b1ff', accent: '#ffffff', rim: '#ffffff' },
-    { name: 'Bolide', cost: 1700, tag: 'Snelste van allemaal, lastig in de lucht', color: '#ff7a1f', dark: '#a03c00', light: '#ffc08a', accent: '#15171c', rim: '#2b2f38' },
-    { name: 'Monster', cost: 2300, tag: 'Beste acceleratie, laagste top', color: '#454b59', dark: '#14161b', light: '#8a93a6', accent: '#ff7a1f', rim: '#ff7a1f' },
-    { name: 'Raket', cost: 3000, tag: 'Enorme boost, verder traag', color: '#e9edf5', dark: '#7d8696', light: '#ffffff', accent: '#e8382f', rim: '#e8382f' }
+    { name: 'Zandvlo', cost: 600, tag: 'Snel weg en wendbaar, lage top', color: '#f5b921', dark: '#a56600', light: '#ffe58a', accent: '#262a35', rim: '#f1f1f1' },
+    { name: 'Pijl', cost: 1200, tag: 'Hoge top, traag op gang en log in de lucht', color: '#2f8bff', dark: '#0f3590', light: '#9ccdff', accent: '#7df9ff', rim: '#7df9ff' },
+    { name: 'Brok', cost: 2000, tag: 'Sterke boost, draait traag in de lucht', color: '#39b54a', dark: '#135a27', light: '#97e89b', accent: '#f4f4f4', rim: '#c9ced8' },
+    { name: 'Kever', cost: 3000, tag: 'Saltokoning, maar geen sprinter', color: '#9b5de5', dark: '#4b2389', light: '#d0b1ff', accent: '#ffffff', rim: '#ffffff' },
+    { name: 'Bolide', cost: 4200, tag: 'Snelste van allemaal, lastig in de lucht', color: '#ff7a1f', dark: '#a03c00', light: '#ffc08a', accent: '#15171c', rim: '#2b2f38' },
+    { name: 'Monster', cost: 5600, tag: 'Beste acceleratie, laagste top', color: '#454b59', dark: '#14161b', light: '#8a93a6', accent: '#ff7a1f', rim: '#ff7a1f' },
+    { name: 'Raket', cost: 7500, tag: 'Enorme boost, verder traag', color: '#e9edf5', dark: '#7d8696', light: '#ffffff', accent: '#e8382f', rim: '#e8382f' }
   ];
   const STAT_NAMES = ['Acceleratie', 'Topsnelheid', 'Luchtcontrole', 'Boost'];
   const statBars = d => { const s = E.CAR_SPECS[d]; return [s.acc, s.top, s.air, s.boost].map(m => clamp(Math.round((m - 0.75) / 0.1 + 0.5), 1, 5)); };
@@ -901,28 +901,41 @@
       try {
         const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
         const ac = new AC(); this.ac = ac;
+        // alles via een zachte hoofdregelaar en een begrenzer: geen harde pieken
+        const comp = ac.createDynamicsCompressor(); comp.threshold.value = -24; comp.ratio.value = 4;
+        const master = ac.createGain(); master.gain.value = 0.5; master.connect(comp); comp.connect(ac.destination); this.out = master;
+        // motor: twee licht ontstemde lage zaagtanden plus een sinus eronder, sterk gedempt, met een trage brom (cilinders)
         const o = ac.createOscillator(); o.type = 'sawtooth';
-        const o2 = ac.createOscillator(); o2.type = 'square';
-        const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500;
+        const o2 = ac.createOscillator(); o2.type = 'sawtooth'; o2.detune.value = 9;
+        const sub = ac.createOscillator(); sub.type = 'sine';
+        const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 260; f.Q.value = 0.6;
         const gn = ac.createGain(); gn.gain.value = 0;
-        o.connect(f); o2.connect(f); f.connect(gn); gn.connect(ac.destination); o.start(); o2.start();
-        this.eng = { o: o, o2: o2, f: f, gn: gn };
+        const am = ac.createGain(); am.gain.value = 0.75;
+        const lfo = ac.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 18;
+        const lfoG = ac.createGain(); lfoG.gain.value = 0.25; lfo.connect(lfoG); lfoG.connect(am.gain);
+        const sg = ac.createGain(); sg.gain.value = 0.8;
+        o.connect(f); o2.connect(f); sub.connect(sg); sg.connect(gn); f.connect(gn); gn.connect(am); am.connect(master);
+        o.start(); o2.start(); sub.start(); lfo.start();
+        this.eng = { o: o, o2: o2, sub: sub, f: f, gn: gn, lfo: lfo };
       } catch (e) { this.ac = null; }
     },
     engine(speed, gas, on) {
       if (!this.eng) return;
-      const t = this.ac.currentTime, fr = 48 + speed * 3.1 + (gas ? 16 : 0);
-      this.eng.o.frequency.setTargetAtTime(fr, t, 0.05); this.eng.o2.frequency.setTargetAtTime(fr * 0.5, t, 0.05);
-      this.eng.f.frequency.setTargetAtTime(280 + speed * 26 + (gas ? 420 : 0), t, 0.08);
-      this.eng.gn.gain.setTargetAtTime(on && !this.muted ? (gas ? 0.06 : 0.03) : 0, t, 0.08);
+      const t = this.ac.currentTime, fr = 34 + speed * 1.7 + (gas ? 7 : 0), e = this.eng;
+      e.o.frequency.setTargetAtTime(fr, t, 0.12); e.o2.frequency.setTargetAtTime(fr, t, 0.12); e.sub.frequency.setTargetAtTime(fr * 0.5, t, 0.12);
+      e.lfo.frequency.setTargetAtTime(fr * 0.5, t, 0.12);
+      e.f.frequency.setTargetAtTime(170 + speed * 9 + (gas ? 90 : 0), t, 0.15);
+      e.gn.gain.setTargetAtTime(on && !this.muted ? (gas ? 0.05 : 0.032) : 0, t, 0.2);
     },
     tone(f, d, type, vol, slide) {
       if (!this.ac || this.muted) return;
+      // zachte klanken: geen blokgolf of zaagtand meer, kort inzetten, lager volume
       const ac = this.ac, t = ac.currentTime, o = ac.createOscillator(), gn = ac.createGain();
-      o.type = type || 'square'; o.frequency.setValueAtTime(f, t);
+      o.type = type === 'square' ? 'triangle' : type === 'sawtooth' ? 'sine' : (type || 'sine'); o.frequency.setValueAtTime(f, t);
       if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + d);
-      gn.gain.setValueAtTime(vol || 0.1, t); gn.gain.exponentialRampToValueAtTime(0.0008, t + d);
-      o.connect(gn); gn.connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+      const v = (vol || 0.1) * 0.55;
+      gn.gain.setValueAtTime(0.0001, t); gn.gain.linearRampToValueAtTime(v, t + 0.012); gn.gain.exponentialRampToValueAtTime(0.0006, t + d);
+      o.connect(gn); gn.connect(this.out); o.start(t); o.stop(t + d + 0.02);
     },
     noise(d, vol, fc) {
       if (!this.ac || this.muted) return;
@@ -931,8 +944,8 @@
       for (let i = 0; i < len; i++) ch[i] = (Math.random() * 2 - 1) * (1 - i / len);
       const s = ac.createBufferSource(); s.buffer = buf;
       const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = fc || 800;
-      const gn = ac.createGain(); gn.gain.value = vol || 0.2;
-      s.connect(f); f.connect(gn); gn.connect(ac.destination); s.start(t);
+      const gn = ac.createGain(); gn.gain.value = (vol || 0.2) * 0.5;
+      s.connect(f); f.connect(gn); gn.connect(this.out); s.start(t);
     }
   };
 
@@ -951,9 +964,10 @@
     mode: 'menu', trackIdx: 0, T: TRACKS[0], racers: [], me: null, cd: 0, time: 0,
     input: { gas: false, brake: false }, cam: { x: 0, y: 0, z: 30 }, shake: 0,
     resultsOpen: false, demo: null, demoIdx: 0, botIn: { gas: false, brake: false },
-    stats: null, earned: null, decided: false, firstFin: 0, viewCar: 0
+    stats: null, earned: null, decided: false, firstFin: 0, viewCar: 0,
+    game: { mode: 'solo', diff: 1 }, lobbyGame: { mode: 'race', diff: 1 }, lobbyProg: {}, coop: null, starsNow: 0, lowWarned: false, botWanted: false
   };
-  const Net = { peer: null, host: false, online: false, conns: new Map(), hc: null, myId: 'me', roster: [], code: '', joinTimer: 0, tally: null };
+  const Net = { peer: null, host: false, online: false, conns: new Map(), hc: null, myId: 'me', roster: [], code: '', joinTimer: 0, tally: null, qrFor: '' };
   const store = {
     get(k, d) { try { const v = localStorage.getItem('sbd-' + k); return v === null ? d : v; } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem('sbd-' + k, v); } catch (e) { /* privemodus */ } }
@@ -961,15 +975,123 @@
   // profiel: naam, punten en gewonnen auto's (alleen op dit toestel bewaard)
   const Profile = {
     name: store.get('name', ''), pts: Math.max(0, parseInt(store.get('pts', '0'), 10) || 0), owned: new Set([0]), car: 0,
+    stars: {}, coop: {}, diff: 1, theme: 'desert',
     load() {
       try { for (const d of JSON.parse(store.get('owned', '[0]'))) if (d >= 0 && d < CARS.length) this.owned.add(d | 0); } catch (e) { /* kapotte opslag: alleen de startauto */ }
       const c = parseInt(store.get('car', '0'), 10) || 0; this.car = this.owned.has(c) ? c : 0;
+      const obj = k => { try { const o = JSON.parse(store.get(k, '{}')); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch (e) { return {}; } };
+      this.stars = obj('stars'); this.coop = obj('coop');
+      const dv = parseInt(store.get('diff', '1'), 10); this.diff = isNaN(dv) ? 1 : clamp(dv, 0, 2);
+      const th = store.get('theme', 'desert'); this.theme = E.THEMES.some(t => t.id === th) ? th : 'desert';
     },
-    save() { store.set('name', this.name); store.set('pts', String(this.pts)); store.set('owned', JSON.stringify([...this.owned])); store.set('car', String(this.car)); }
+    save() {
+      store.set('name', this.name); store.set('pts', String(this.pts)); store.set('owned', JSON.stringify([...this.owned])); store.set('car', String(this.car));
+      store.set('stars', JSON.stringify(this.stars)); store.set('coop', JSON.stringify(this.coop)); store.set('diff', String(this.diff)); store.set('theme', this.theme);
+    }
   };
   Profile.load(); S.viewCar = Profile.car;
   const newTally = () => ({ wins: {}, races: 0, since: Date.now() });
   const authority = () => Net.host || !Net.online;
+  S.lobbyGame.diff = Profile.diff;
+
+  // ---------------------------------------------------------------- levels
+  // moeilijkheid: benzineverbruik en snelheid van de robot
+  const DIFFS = [
+    { icon: '🐢', name: 'Rustig', tip: 'Veel benzine, trage robot', fuel: 0.6, bot: 0.84 },
+    { icon: '🐇', name: 'Normaal', tip: 'Pak de jerrycans!', fuel: 0.9, bot: 0.93 },
+    { icon: '🚀', name: 'Snel', tip: 'Weinig benzine, snelle robot', fuel: 1.1, bot: 1.0 }
+  ];
+  const LV = TRACKS.map(T => T.def);
+  const levelsOf = th => LV.map((d, i) => i).filter(i => LV[i].theme === th).sort((a, b) => LV[a].no - LV[b].no);
+  const findLevel = (th, no) => LV.findIndex(d => d.theme === th && d.no === no);
+  function isOpen(i, prog) { const d = LV[i]; if (d.no === 1) return true; const j = findLevel(d.theme, d.no - 1); return j >= 0 && (prog[LV[j].id] || 0) > 0; }
+  function lastOpen(th, prog) { let best = findLevel(th, 1); for (const i of levelsOf(th)) if (isOpen(i, prog)) best = i; return best; }
+  // na het laatste level van een wereld komt level 1 van de volgende wereld
+  function nextLevel(i) {
+    const d = LV[i], j = findLevel(d.theme, d.no + 1); if (j >= 0) return j;
+    const t = E.THEMES.findIndex(q => q.id === d.theme), nt = E.THEMES[t + 1];
+    return nt ? findLevel(nt.id, 1) : -1;
+  }
+  const starStr = (n, max) => '★'.repeat(n) + '☆'.repeat(Math.max(0, max - n));
+  // sterren als losse tekens: behaalde goud, de rest grijs
+  function fillStars(box, n, max) { box.textContent = ''; for (let k = 0; k < max; k++) box.appendChild(el('i', k < n ? 'on' : '', '★')); }
+  // plaatje van een level: het hoogteprofiel met loopings als rondjes en ravijnen als gaten
+  const thumbCache = [];
+  function thumb(i) {
+    if (thumbCache[i]) return thumbCache[i];
+    const T = TRACKS[i], th = THEMES[T.theme], w = 200, h = 96, c = document.createElement('canvas'); c.width = w; c.height = h;
+    const x = c.getContext('2d');
+    const sg = x.createLinearGradient(0, 0, 0, h); sg.addColorStop(0, th.sky[0]); sg.addColorStop(0.6, th.sky[1]); sg.addColorStop(1, th.sky[2]);
+    x.fillStyle = sg; x.fillRect(0, 0, w, h);
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    for (let k = 1; k < T.n - 1; k++) {
+      if (T.S[k] < T.startS - 12 || T.S[k] > T.finishS + 8 || (T.FL[k] & (E.F_PIT | E.F_INLOOP))) continue;
+      x0 = Math.min(x0, T.X[k]); x1 = Math.max(x1, T.X[k]); y0 = Math.min(y0, T.Y[k]); y1 = Math.max(y1, T.Y[k]);
+    }
+    const sx = (w - 16) / (x1 - x0), sy = Math.min(2.2, (h - 44) / Math.max(8, y1 - y0));
+    const X = v => 8 + (v - x0) * sx, Y = v => h - 14 - (y1 - v) * sy;
+    x.fillStyle = th.ground[0]; x.strokeStyle = th.track; x.lineWidth = 3.5; x.lineJoin = 'round';
+    let path = [];
+    const flush = () => {
+      if (path.length < 2) { path = []; return; }
+      x.beginPath(); x.moveTo(path[0][0], h); for (const q of path) x.lineTo(q[0], q[1]); x.lineTo(path[path.length - 1][0], h); x.closePath(); x.fill();
+      x.beginPath(); path.forEach((q, k) => k ? x.lineTo(q[0], q[1]) : x.moveTo(q[0], q[1])); x.stroke(); path = [];
+    };
+    for (let k = 1; k < T.n - 1; k++) {
+      if (T.S[k] < T.startS - 12 || T.S[k] > T.finishS + 8) continue;
+      if (T.FL[k] & (E.F_PIT | E.F_INLOOP)) { if (T.FL[k] & E.F_PIT) flush(); continue; }
+      path.push([X(T.X[k]), Y(T.Y[k])]);
+    }
+    flush();
+    x.strokeStyle = th.track; x.lineWidth = 3;
+    for (const l of T.loops) { x.beginPath(); x.arc(X(l.cx), Y(l.cy + l.R) - 7, 7, 0, 6.2832); x.stroke(); }
+    x.fillStyle = '#8d8f99';
+    for (const r of T.rocks) { const p = E.pointAt(T, r.s, {}); x.beginPath(); x.arc(X(p.x), Y(p.y) - 5, 4.5, 0, 6.2832); x.fill(); }
+    const pf = E.pointAt(T, T.finishS, {}); x.font = '16px sans-serif'; x.textAlign = 'center'; x.fillText('🏁', X(pf.x), Y(pf.y) - 6);
+    return (thumbCache[i] = c.toDataURL());
+  }
+  function tile(ico, title, sub, cls) {
+    const b = el('button', 'tile' + (cls ? ' ' + cls : ''));
+    b.appendChild(el('span', 'ico', ico)); b.appendChild(el('b', '', title)); if (sub) b.appendChild(el('small', '', sub));
+    return b;
+  }
+  // wereld, level en moeilijkheid kiezen. o = {prog, maxStars, theme, sel, canEdit, diff, onTheme, onPick, onDiff}
+  function levelPicker(box, o) {
+    box.innerHTML = '';
+    box.appendChild(el('div', 'sect', '🌍 Kies een wereld'));
+    const tr = el('div', 'tiles three themes');
+    for (const t of E.THEMES) {
+      const got = levelsOf(t.id).reduce((a, i) => a + Math.min(o.maxStars, o.prog[LV[i].id] || 0), 0);
+      const b = tile(t.icon, t.name, '★ ' + got + '/' + levelsOf(t.id).length * o.maxStars, t.id === o.theme ? 'sel' : '');
+      b.disabled = !o.canEdit && t.id !== o.theme; b.onclick = () => { Snd.init(); Snd.tone(520, 0.08, 'sine', 0.06); o.onTheme(t.id); };
+      tr.appendChild(b);
+    }
+    box.appendChild(tr);
+    box.appendChild(el('div', 'sect', '🏁 Kies een level'));
+    const lv = el('div', 'lvls');
+    for (const i of levelsOf(o.theme)) {
+      const d = LV[i], open = isOpen(i, o.prog), st = o.prog[d.id] || 0;
+      const b = el('button', 'lvl' + (open ? '' : ' locked') + (i === o.sel ? ' sel' : ''));
+      const im = new Image(); im.src = thumb(i); im.alt = ''; b.appendChild(im);
+      b.appendChild(el('span', 'no', String(d.no)));
+      b.appendChild(el('span', 'nm', d.name));
+      const sb = el('span', 'st'); if (open) fillStars(sb, Math.min(st, o.maxStars), o.maxStars); b.appendChild(sb);
+      if (!open) b.appendChild(el('span', 'lock', '🔒'));
+      b.title = 'Level ' + d.no + ': ' + d.name + ' (' + d.level + ')' + (open ? '' : ' - haal eerst het level ervoor');
+      b.disabled = !open || (!o.canEdit && i !== o.sel);
+      b.onclick = () => { if (o.canEdit && open) o.onPick(i); };
+      lv.appendChild(b);
+    }
+    box.appendChild(lv);
+    box.appendChild(el('div', 'sect', '🎚️ Hoe moeilijk?'));
+    const dr = el('div', 'tiles three diffs');
+    DIFFS.forEach((df, k) => {
+      const b = tile(df.icon, df.name, df.tip, k === o.diff ? 'sel' : '');
+      b.disabled = !o.canEdit && k !== o.diff; b.onclick = () => { Snd.init(); Snd.tone(440 + k * 120, 0.08, 'sine', 0.06); o.onDiff(k); };
+      dr.appendChild(b);
+    });
+    box.appendChild(dr);
+  }
 
   function newVis() { return { x: 0, y: 0, a: 0, spin0: 0, spin1: 0, sus0: 0, sus1: 0, boost: false, s: 0, sp: 0, z: 0, far: false, sh: null, dead: false, init: false }; }
   // diepte van de rijstrook en de schaduw op het wegdek onder de auto
@@ -987,22 +1109,24 @@
     v.dead = car.dead > 0; v.init = true; placeVis(v, T);
   }
 
-  function startDemo() {
-    S.demoIdx = (S.demoIdx + 1) % TRACKS.length;
+  function startDemo(idx) {
+    S.demoIdx = idx === undefined ? (S.demoIdx + 1) % TRACKS.length : idx;
     S.T = TRACKS[S.demoIdx];
-    const design = Math.floor(Math.random() * CARS.length), car = E.newCar(S.T, design); car.vmaxK = 0.9;
+    const design = Math.floor(Math.random() * CARS.length), car = E.newCar(S.T, design); car.vmaxK = 0.9; car.fuelRate = 0;
     S.demo = { car: car, vis: newVis(), design: design, kind: 'demo', lane: 0 };
     parts.length = 0;
   }
 
-  function startRace(trackIdx, roster) {
+  function startRace(trackIdx, roster, game) {
     S.trackIdx = trackIdx; S.T = TRACKS[trackIdx];
+    S.game = { mode: game && ['solo', 'race', 'coop'].includes(game.mode) ? game.mode : 'race', diff: clamp((game && game.diff) | 0, 0, 2) };
+    const df = DIFFS[S.game.diff];
     S.racers = roster.map(p => {
       const local = p.id === Net.myId, bot = p.id === 'bot' && authority();
       const design = clamp(p.car | 0, 0, CARS.length - 1);
-      const r = { id: p.id, name: p.name, design: design, kind: local ? 'me' : bot ? 'bot' : 'remote', car: null, vis: newVis(), snap: null, snapT: 0, time: 0, gone: false };
+      const r = { id: p.id, name: p.name, design: design, kind: local ? 'me' : bot ? 'bot' : 'remote', car: null, vis: newVis(), snap: null, snapT: 0, time: 0, gone: false, outNet: false };
       const c = E.newCar(S.T, design);
-      if (local || bot) { r.car = c; if (bot) c.vmaxK = 0.93; }
+      if (local || bot) { r.car = c; c.fuelRate = df.fuel; if (bot) c.vmaxK = df.bot; }
       visFromCar(r.vis, c, S.T);
       return r;
     });
@@ -1010,7 +1134,8 @@
     // ieder zijn eigen baan: jouw auto rijdt op de voorste
     let lane = 1; for (const r of S.racers) r.lane = r === S.me ? 0 : lane++;
     S.mode = 'countdown'; S.cd = 3.4; S.resultsOpen = false; S.lastCd = 4;
-    S.stats = { flips: 0, air: 0, pads: 0, crashes: 0 }; S.earned = null; S.decided = false; S.firstFin = 0;
+    S.stats = { flips: 0, air: 0, pads: 0, crashes: 0, cans: 0 }; S.earned = null; S.decided = false; S.firstFin = 0;
+    S.coop = null; S.starsNow = 0; S.lowWarned = false;
     S.input.gas = S.input.brake = false; parts.length = 0;
     $('prog').innerHTML = '';
     for (const r of S.racers) { const i = document.createElement('i'); i.style.background = CARS[r.design].color; if (r.kind === 'me') i.className = 'me'; $('prog').appendChild(i); r.dot = i; }
@@ -1030,12 +1155,23 @@
   function toast(txt) { const t = $('toast'); t.textContent = txt; t.classList.add('on'); toastT = 1.1; }
 
   function awardPoints(r) {
-    const st = S.stats, place = 1 + S.racers.filter(q => q !== r && !q.gone && q.time && q.time < r.time).length;
-    const items = [['Gefinisht', 40], [place + 'e plaats', [100, 50, 25, 10][place - 1] || 0]];
-    if (st.flips) items.push([st.flips + (st.flips === 1 ? ' salto' : " salto's"), st.flips * 25]);
-    if (st.air) items.push([st.air + (st.air === 1 ? ' grote sprong' : ' grote sprongen'), st.air * 10]);
-    if (st.pads) items.push([st.pads + 'x boost', st.pads * 3]);
-    if (!st.crashes) items.push(['Zonder crash', 40]);
+    const st = S.stats, gm = S.game, items = [['Gefinisht', 30]];
+    if (gm.mode !== 'coop') {
+      const place = 1 + S.racers.filter(q => q !== r && !q.gone && q.time && q.time < r.time).length;
+      items.push([place + 'e plaats', [60, 30, 15, 5][place - 1] || 0]);
+    }
+    if (st.flips) items.push([st.flips + (st.flips === 1 ? ' salto' : " salto's"), st.flips * 10]);
+    if (st.air) items.push([st.air + (st.air === 1 ? ' grote sprong' : ' grote sprongen'), st.air * 5]);
+    if (st.cans) items.push([st.cans + 'x benzine', st.cans * 3]);
+    if (!st.crashes) items.push(['Zonder crash', 20]);
+    if (gm.mode === 'solo') {
+      // 1 ster = gehaald, 2 = sneller dan de robot, 3 = sneller dan de robot en zonder crash
+      const bot = S.racers.find(q => q.kind === 'bot'), beat = !bot || !bot.time || r.time < bot.time;
+      const stars = 1 + (beat ? 1 : 0) + (beat && !st.crashes ? 1 : 0), id = LV[S.trackIdx].id, prev = Profile.stars[id] || 0;
+      S.starsNow = stars;
+      if (!prev) items.push(['Nieuw level', 25]);
+      if (stars > prev) Profile.stars[id] = stars;
+    }
     const total = items.reduce((a, b) => a + b[1], 0);
     S.earned = { items: items, total: total };
     Profile.pts += total; Profile.save();
@@ -1059,6 +1195,14 @@
         if (isCam) { S.shake = 0.8; Snd.noise(0.6, 0.4, 260); Snd.tone(90, 0.5, 'sawtooth', 0.14, 30); }
       }
       else if (e[0] === 'respawn') { if (mine) Snd.tone(300, 0.25, 'triangle', 0.1, 520); }
+      else if (e[0] === 'fuel') { if (mine) { S.stats.cans++; toast('⛽ +BENZINE'); Snd.tone(660, 0.09, 'sine', 0.08); setTimeout(() => Snd.tone(990, 0.14, 'sine', 0.08), 70); } }
+      else if (e[0] === 'rockhit') { if (isCam) { S.shake = Math.min(0.45, e[1] * 0.03); Snd.noise(0.2, 0.22, 300); } }
+      else if (e[0] === 'rockoff') {
+        if (mine) { toast('WEG ERMEE! 🪨'); Snd.noise(0.45, 0.18, 220); }
+        const R = car.rocks.find(q => q.off && q.offT < 0.05), p = R ? E.pointAt(S.T, R.s, {}) : null;
+        if (p) for (let i = 0; i < 10; i++) puff(p.x + (Math.random() - 0.5) * 2, p.y - 0.3, (Math.random() - 0.5) * 5, -Math.random() * 3, 0.6 + Math.random() * 0.4, 0.25 + Math.random() * 0.2, th.dust, 0.9);
+      }
+      else if (e[0] === 'nofuel') { if (mine) { toast('BENZINE OP! ⛽'); Snd.tone(330, 0.6, 'sine', 0.1, 110); setTimeout(openResults, 1600); } }
       else if (e[0] === 'finish') {
         r.time = Math.round(car.ticks / 240 / TS * 1000);
         for (let i = 0; i < 70; i++) puff(car.x + (Math.random() - 0.5) * 5, car.y - 5 - Math.random() * 3, car.vx * 0.6 + (Math.random() - 0.5) * 14, -Math.random() * 9, 1.6 + Math.random() * 1.4, 0.1 + Math.random() * 0.08, ['255,210,63', '255,90,54', '98,244,255', '255,255,255', '57,211,83'][i % 5], 0, 2);
@@ -1084,7 +1228,7 @@
       S.cd -= dt / TS;
       const n = Math.ceil(S.cd - 0.4);
       if (n !== S.lastCd && n >= 1 && n <= 3) { Snd.tone(440, 0.12, 'square', 0.09); S.lastCd = n; }
-      if (S.cd <= 0.4 && S.lastCd !== 0) { S.lastCd = 0; S.mode = 'race'; Snd.tone(880, 0.4, 'square', 0.1); for (const r of S.racers) if (r.car) r.car.ticks = 0; }
+      if (S.cd <= 0.4 && S.lastCd !== 0) { S.lastCd = 0; S.mode = 'race'; Snd.tone(880, 0.4, 'square', 0.1); for (const r of S.racers) if (r.car) { r.car.ticks = 0; r.car.fuel = 1; } }
     }
     for (const r of S.racers) {
       if (!r.car) continue;
@@ -1130,6 +1274,7 @@
       if (dead && !v.dead) { PZ = depthFor(r); boom(v.x, v.y, r.design); }
       v.dead = dead;
       if (sn[8] && !r.time) r.time = sn[8];
+      r.outNet = !!sn[10];
     }
   }
 
@@ -1150,7 +1295,8 @@
     const seg0 = car ? car.cps[0].seg : -1, loop = car && (T.FL[seg0] & E.F_LOOP) ? T.loops.find(l => seg0 >= l.i0 - 2 && seg0 <= l.i1) : null;
     V3.frame(dt, {
       x: v.x, y: v.y, s: v.s, lane: focus ? focus.lane | 0 : 0, sp: v.sp, vx: live ? car.vx : 0, vy: live ? car.vy : 0,
-      inLoop: !!loop, loopR: loop ? loop.R : 0, menu: menuish, shake: S.shake, time: S.time
+      inLoop: !!loop, loopR: loop ? loop.R : 0, menu: menuish, shake: S.shake, time: S.time,
+      fuelNext: car ? car.fuelNext : 0, rocks: car ? car.rocks : null
     }, cars, parts);
     if (S.shake > 0.01) S.shake *= Math.pow(0.002, dt);
     // getekende lucht en verte achter de 3D-wereld
@@ -1209,6 +1355,7 @@
       if (S.me && !S.me.vis.dead) cars.push({ vis: S.me.vis, design: S.me.design, alpha: 1 });
     }
     drawWorld(T, R, th, S.time, cars);
+    if (car) drawPickups2d(T, car, cam);
     // rook en stof van de eigen auto
     if (live && Math.random() < 0.6) {
       PZ = v.z + 1.5; const px = car.x, py = car.y;
@@ -1238,19 +1385,58 @@
     else Snd.engine(0, false, false);
   }
 
+  function drawPickups2d(T, car, cam) {
+    for (let k = car.fuelNext; k < T.fuels.length; k++) {
+      const fu = T.fuels[k]; if (fu.x - cam.x > 60) break; if (cam.x - fu.x > 60) continue;
+      const zz = laneZ(T, fu.s) + 1.5, x = fu.x + DX * zz, y = fu.y + DY * zz + Math.sin(S.time * 3 + k) * 0.15;
+      g.fillStyle = '#e8382f'; g.fillRect(x - 0.45, y - 0.55, 0.9, 1.1);
+      g.fillStyle = '#7a0f0c'; g.fillRect(x - 0.3, y - 0.38, 0.6, 0.76);
+      g.fillStyle = '#ffd23f'; g.fillRect(x - 0.38, y - 0.8, 0.22, 0.25);
+    }
+    for (const Rk of car.rocks) {
+      if (Rk.offT > 1.5 || Math.abs(Rk.s - car.s) > 60) continue;
+      const p = E.pointAt(T, Rk.s, {}), zz = laneZ(T, Rk.s) + 1.5 - Rk.offT * 4, drop = Rk.offT * Rk.offT * 9;
+      const x = p.x + p.ty * Rk.r + DX * zz, y = p.y - p.tx * Rk.r + DY * zz + drop;
+      g.save(); g.translate(x, y); g.rotate((Rk.s - Rk.s0) / Rk.r);
+      g.fillStyle = '#7d7f88'; g.beginPath(); g.arc(0, 0, Rk.r, 0, 6.2832); g.fill();
+      g.fillStyle = '#a3a6b0'; g.beginPath(); g.arc(-Rk.r * 0.3, -Rk.r * 0.3, Rk.r * 0.45, 0, 6.2832); g.fill();
+      g.restore();
+    }
+  }
   function fmt(ms) { return (ms / 1000).toFixed(2); }
   // wie heeft deze race gewonnen: alleen de host (of solo) beslist en houdt de stand bij
+  const isOut = r => r.car ? !!r.car.out : !!r.outNet;
   function decideRace() {
     if (!authority() || S.decided || S.mode !== 'race') return;
-    const active = S.racers.filter(r => !r.gone), fin = active.filter(r => r.time);
-    if (!fin.length) return;
+    const gm = S.game, active = S.racers.filter(r => !r.gone);
+    if (gm.mode === 'solo') return;
+    if (gm.mode === 'coop') {
+      // samen: alleen gehaald als iedereen over de finish komt
+      const humans = active.filter(r => r.id !== 'bot');
+      if (humans.some(r => isOut(r) && !r.time)) coopVerdict(false);
+      else if (humans.length && humans.every(r => r.time)) coopVerdict(true);
+      return;
+    }
+    const fin = active.filter(r => r.time), done = active.filter(r => r.time || isOut(r));
+    if (!done.length) return;
     if (!S.firstFin) S.firstFin = performance.now();
-    if (fin.length < active.length && performance.now() - S.firstFin < 25000) return;
+    if (done.length < active.length && performance.now() - S.firstFin < 25000) return;
     S.decided = true;
-    fin.sort((a, b) => a.time - b.time);
     const t = Net.tally || (Net.tally = newTally());
-    t.wins[fin[0].id] = (t.wins[fin[0].id] || 0) + 1; t.races++;
+    if (fin.length) { fin.sort((a, b) => a.time - b.time); t.wins[fin[0].id] = (t.wins[fin[0].id] || 0) + 1; }
+    t.races++;
     if (Net.host) broadcast({ t: 'tally', tally: t });
+  }
+  function coopVerdict(ok) {
+    S.decided = true;
+    if (Net.host) broadcast({ t: 'coop', ok: ok, track: S.trackIdx });
+    applyCoop(ok);
+  }
+  function applyCoop(ok) {
+    if (S.coop || S.mode !== 'race') return;
+    S.coop = { ok: ok };
+    if (ok) { Profile.coop[LV[S.trackIdx].id] = 1; Profile.pts += 40; Profile.save(); Snd.tone(523, 0.14, 'square', 0.09); setTimeout(() => Snd.tone(784, 0.3, 'square', 0.09), 160); }
+    if (S.resultsOpen) fillResults(); else setTimeout(openResults, ok ? 300 : 1400);
   }
   function updateHud() {
     const big = $('big');
@@ -1264,6 +1450,11 @@
     $('time').textContent = fmt(me.time || car.ticks / 240 / TS * 1000);
     $('speed').textContent = String(Math.round(Math.hypot(car.vx, car.vy) * 6 * TS));
     $('boostBar').firstElementChild.style.width = clamp(car.boostT / (1.1 * car.spec.boost), 0, 1) * 100 + '%';
+    $('fuelBar').firstElementChild.style.width = clamp(car.fuel, 0, 1) * 100 + '%';
+    const low = car.fuel < 0.2 && !car.finished && S.mode === 'race';
+    $('fuelRow').classList.toggle('low', low);
+    if (low && !S.lowWarned && !car.out) { S.lowWarned = true; toast('Bijna leeg! Pak ⛽'); Snd.tone(440, 0.15, 'sine', 0.07); setTimeout(() => Snd.tone(440, 0.15, 'sine', 0.07), 220); }
+    else if (car.fuel > 0.35) S.lowWarned = false;
     const rk = ranking(), place = rk.indexOf(me) + 1;
     $('pos').innerHTML = place + '<small>e /' + S.racers.filter(r => !r.gone).length + '</small>';
     const span = T.finishS - T.startS;
@@ -1272,9 +1463,10 @@
   }
 
   // ---------------------------------------------------------------- schermen
+  const SCREENS = ['menu', 'levels', 'together', 'lobby', 'results'];
   function show(which) {
-    $('menu').hidden = which !== 'menu'; $('lobby').hidden = which !== 'lobby';
-    $('results').hidden = which !== 'results'; $('hud').hidden = !(which === 'hud' || which === 'results');
+    for (const k of SCREENS) $(k).hidden = which !== k;
+    $('hud').hidden = !(which === 'hud' || which === 'results');
   }
   function el(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; return e; }
 
@@ -1317,85 +1509,177 @@
     S.viewCar = Profile.car; renderGarage();
     $('menuMsg').textContent = msg || ''; show('menu');
   }
+  function idle(mode) { S.mode = mode; S.resultsOpen = false; S.racers = []; S.me = null; $('big').textContent = ''; if (!S.demo) startDemo(); else S.T = TRACKS[S.demoIdx]; }
+
+  // alleen spelen: levels tegen de robot
+  function showLevels(msg) {
+    leaveNet(); idle('menu');
+    const th = Profile.theme; if (LV[S.demoIdx].theme !== th) startDemo(findLevel(th, 1));
+    renderLevels(); $('lvlMsg').textContent = msg || ''; show('levels');
+  }
+  function renderLevels() {
+    levelPicker($('lvlPick'), {
+      prog: Profile.stars, maxStars: 3, theme: Profile.theme, sel: -1, canEdit: true, diff: Profile.diff,
+      onTheme: t => { Profile.theme = t; Profile.save(); startDemo(findLevel(t, 1)); renderLevels(); },
+      onPick: i => { Snd.init(); readProfile(); startSoloLevel(i); },
+      onDiff: k => { Profile.diff = k; Profile.save(); renderLevels(); }
+    });
+  }
+  function startSoloLevel(i) {
+    leaveNet(); Net.roster = [me()]; setBot(true);
+    startRace(i, Net.roster, { mode: 'solo', diff: Profile.diff });
+  }
+
+  // samen spelen: spel maken of meedoen met 3 dieren
+  const ANIMALS = [['🐶', 'hond'], ['🐱', 'kat'], ['🐰', 'konijn'], ['🦊', 'vos'], ['🐻', 'beer'], ['🐼', 'panda'], ['🐸', 'kikker'], ['🐵', 'aap'], ['🦁', 'leeuw'], ['🐯', 'tijger'], ['🐷', 'varken'], ['🐮', 'koe']];
+  const CODE_A = 'ABCDEFGHJKLM';
+  const codeIcons = code => String(code || '').split('').map(ch => { const k = CODE_A.indexOf(ch); return k >= 0 ? ANIMALS[k][0] : '?'; }).join('');
+  const joinPick = [];
+  function showTogether(msg, keep) {
+    leaveNet(); idle('menu');
+    if (!keep) { joinPick.length = 0; $('joinBox').hidden = true; }
+    renderJoin(); $('togMsg').textContent = msg || ''; show('together');
+  }
+  function renderJoin() {
+    const sl = $('slots'); sl.innerHTML = '';
+    for (let k = 0; k < 3; k++) { const a = joinPick[k]; sl.appendChild(el('span', a !== undefined ? 'f' : '', a !== undefined ? ANIMALS[a][0] : '')); }
+    const bx = $('animals');
+    if (!bx.childElementCount) ANIMALS.forEach((a, i) => { const b = el('button', '', a[0]); b.title = a[1]; b.setAttribute('aria-label', a[1]); b.onclick = () => pickAnimal(i); bx.appendChild(b); });
+    $('btnJoinGo').hidden = joinPick.length !== 3;
+    $('btnJoinDel').style.visibility = joinPick.length ? 'visible' : 'hidden';
+  }
+  function pickAnimal(i) {
+    Snd.init(); if (joinPick.length >= 3) joinPick.length = 0;
+    joinPick.push(i); Snd.tone(500 + joinPick.length * 120, 0.1, 'sine', 0.07); renderJoin();
+    if (joinPick.length === 3) doJoin();
+  }
+  function doJoin() { if (joinPick.length !== 3) return; readProfile(); joinGame(joinPick.map(i => CODE_A[i]).join('')); }
+  const shareLink = () => location.href.split('#')[0] + '#' + Net.code;
+
   function tallyText() {
     const t = Net.tally; if (!t || !t.races) return '';
     const rows = Net.roster.map(p => [p.name, t.wins[p.id] || 0]).sort((a, b) => b[1] - a[1]);
-    return 'Stand deze sessie (' + t.races + (t.races === 1 ? ' race' : ' races') + '): ' + rows.map(r => r[0] + ' ' + r[1]).join(' · ');
+    return 'Stand (' + t.races + (t.races === 1 ? ' race' : ' races') + '): ' + rows.map(r => r[0] + ' ' + r[1]).join(' · ');
   }
+  function lobbyProg() { return authority() ? (S.lobbyGame.mode === 'coop' ? Profile.coop : Profile.stars) : (S.lobbyProg || {}); }
+  function lobbyChanged() { if (Net.host) broadcastLobby(); showLobby(); }
   function showLobby() {
-    S.mode = 'lobby'; S.resultsOpen = false; S.racers = []; S.me = null; $('big').textContent = '';
-    if (!S.demo) startDemo(); else S.T = TRACKS[S.demoIdx];
-    const canEdit = authority(), t = Net.tally;
-    $('lobbyTitle').textContent = Net.online ? 'Lobby' : 'Solo race';
-    $('codeBox').hidden = !Net.online; $('codeShow').textContent = Net.code || '----';
+    idle('lobby');
+    const canEdit = authority(), t = Net.tally, gm = S.lobbyGame;
+    $('codeShow').textContent = codeIcons(Net.code);
+    if (Net.qrFor !== Net.code) {
+      Net.qrFor = Net.code; const q = $('qr'); q.innerHTML = '';
+      if (window.QRCode && Net.code) { try { new QRCode(q, { text: shareLink(), width: 240, height: 240, correctLevel: QRCode.CorrectLevel.M }); } catch (e) { q.innerHTML = ''; } }
+    }
     const ul = $('players'); ul.innerHTML = '';
     for (const p of Net.roster) {
       const li = el('li', p.id === Net.myId ? 'me' : '');
       const dot = el('i'); dot.style.background = CARS[clamp(p.car | 0, 0, CARS.length - 1)].color;
-      li.appendChild(dot); li.appendChild(el('b', '', p.name));
+      li.appendChild(dot); li.appendChild(el('b', '', (p.id === 'bot' ? '🤖 ' : '') + p.name));
       const wins = t && t.races ? (t.wins[p.id] || 0) + 'x gewonnen' : '';
-      li.appendChild(el('span', '', [p.id === 'bot' ? 'bot' : p.id === Net.myId ? 'jij' : p.id === 'h' ? 'host' : '', wins].filter(Boolean).join(' · ')));
+      li.appendChild(el('span', '', [p.id === 'bot' ? 'robot' : p.id === Net.myId ? 'jij' : p.id === 'h' ? 'host' : '', wins].filter(Boolean).join(' · ')));
       ul.appendChild(li);
     }
-    const tp = $('trackPick'); tp.innerHTML = '';
-    E.TRACKS.forEach((d, i) => {
-      const b = el('button', i === S.trackIdx ? 'sel' : ''); b.appendChild(document.createTextNode(d.name)); b.appendChild(el('small', '', d.level));
-      b.disabled = !canEdit && i !== S.trackIdx;
-      b.onclick = () => { if (!canEdit) return; S.trackIdx = i; if (Net.host) broadcastLobby(); showLobby(); };
-      tp.appendChild(b);
+    for (const b of $('modePick').querySelectorAll('button')) { b.classList.toggle('sel', b.dataset.mode === gm.mode); b.disabled = !canEdit && b.dataset.mode !== gm.mode; }
+    const prog = lobbyProg();
+    if (canEdit && !isOpen(S.trackIdx, prog)) S.trackIdx = lastOpen(LV[S.trackIdx].theme, prog);
+    levelPicker($('lobbyLvl'), {
+      prog: prog, maxStars: gm.mode === 'coop' ? 1 : 3, theme: LV[S.trackIdx].theme, sel: S.trackIdx, canEdit: canEdit, diff: gm.diff,
+      onTheme: th => { S.trackIdx = lastOpen(th, prog); lobbyChanged(); },
+      onPick: i => { S.trackIdx = i; lobbyChanged(); },
+      onDiff: k => { gm.diff = k; lobbyChanged(); }
     });
-    $('botRow').hidden = !canEdit; $('botChk').checked = Net.roster.some(p => p.id === 'bot');
+    const bc = $('botChk'); bc.hidden = !canEdit || gm.mode === 'coop'; bc.classList.toggle('sel', Net.roster.some(p => p.id === 'bot'));
     $('btnStart').hidden = !canEdit;
-    $('lobbyMsg').textContent = canEdit ? (Net.online && Net.roster.filter(p => p.id !== 'bot').length < 2 ? 'Wacht op medespelers… of start alvast.' : '') : 'De host kiest de baan en start de race.';
+    const humans = Net.roster.filter(p => p.id !== 'bot').length;
+    $('lobbyMsg').textContent = !canEdit ? 'De host kiest het level en start.' : humans < 2 ? (gm.mode === 'coop' ? 'Wacht tot je vriend meedoet…' : 'Wacht tot je vriend meedoet… of start alvast tegen de robot.') : '';
     show('lobby');
+  }
+  function hostStart(idx) {
+    if (!authority()) return;
+    if (!Net.tally || Date.now() - Net.tally.since > 3600e3) Net.tally = newTally();
+    const gm = { mode: S.lobbyGame.mode, diff: S.lobbyGame.diff };
+    const roster = gm.mode === 'coop' ? Net.roster.filter(p => p.id !== 'bot') : Net.roster;
+    if (Net.host) broadcast({ t: 'start', track: idx, players: roster, tally: Net.tally, game: gm });
+    startRace(idx, roster, gm);
   }
   function openResults() {
     if (S.mode !== 'race') return;
+    if (S.resultsOpen) { fillResults(); return; }
     S.resultsOpen = true; fillResults();
-    const canEdit = authority();
-    $('btnAgain').hidden = !canEdit; $('resMsg').textContent = canEdit ? '' : 'Wacht op de host voor de volgende race…';
     show('results');
   }
   function fillResults() {
-    const ol = $('rank'), rk = ranking().filter(r => !r.gone); ol.innerHTML = '';
+    const ol = $('rank'), rk = ranking().filter(r => !r.gone), gm = S.game, me = S.me, host = authority(); ol.innerHTML = '';
     rk.forEach((r, i) => {
       const li = el('li', r === S.me ? 'me' : '');
       const dot = el('i'); dot.style.background = CARS[r.design].color;
-      li.appendChild(el('b', '', String(i + 1))); li.appendChild(dot); li.appendChild(el('em', '', r.name));
-      li.appendChild(el('span', '', r.time ? fmt(r.time) + ' s' : 'onderweg…')); ol.appendChild(li);
+      li.appendChild(el('b', '', gm.mode === 'coop' ? (r.time ? '✅' : isOut(r) ? '❌' : '…') : String(i + 1))); li.appendChild(dot);
+      li.appendChild(el('em', '', (r.kind === 'bot' ? '🤖 ' : '') + r.name));
+      li.appendChild(el('span', '', r.time ? fmt(r.time) + ' s' : isOut(r) ? '⛽ leeg' : 'onderweg…')); ol.appendChild(li);
     });
-    $('resTitle').textContent = rk[0] === S.me && S.me && S.me.time ? 'Gewonnen!' : 'Uitslag';
+    const myOk = !!(me && me.time), meOut = !!(me && isOut(me)), nx = nextLevel(S.trackIdx);
+    let title, stars = '', passed;
+    if (gm.mode === 'solo') {
+      passed = myOk;
+      title = myOk ? (S.starsNow === 3 ? 'Super! 🏆' : 'Level gehaald! 🎉') : meOut ? 'Benzine op! 😢' : 'Uitslag';
+      if (myOk) stars = starStr(S.starsNow, 3);
+    } else if (gm.mode === 'coop') {
+      passed = !!(S.coop && S.coop.ok);
+      title = S.coop ? (S.coop.ok ? 'Samen gehaald! 🎉' : 'Helaas, niet allebei gehaald 😢') : myOk ? 'Wachten op je maatje…' : 'Even wachten…';
+      if (passed) stars = '★';
+    } else {
+      passed = true;
+      title = rk[0] === me && myOk ? 'Gewonnen! 🏆' : meOut && !myOk ? 'Benzine op! 😢' : 'Uitslag';
+    }
+    const d = LV[S.trackIdx];
+    $('resTitle').textContent = title;
+    $('resSub').textContent = E.THEMES.find(q => q.id === d.theme).icon + ' Level ' + d.no + ': ' + d.name;
+    if (stars) fillStars($('resStars'), gm.mode === 'solo' ? S.starsNow : 1, gm.mode === 'solo' ? 3 : 1); else $('resStars').textContent = '';
     const e = S.earned, box = $('resPts'); box.innerHTML = '';
-    if (e) {
-      box.appendChild(el('b', '', '+' + e.total + ' punten'));
-      box.appendChild(el('span', '', e.items.map(it => it[0] + ' ' + it[1]).join(' · ')));
+    if (e || passed && gm.mode === 'coop') {
+      const items = e ? e.items.slice() : [], bonus = S.coop && S.coop.ok ? 40 : 0;
+      if (bonus) items.push(['Samen gehaald', bonus]);
+      box.appendChild(el('b', '', '+' + ((e ? e.total : 0) + bonus) + ' punten'));
+      box.appendChild(el('span', '', items.map(it => it[0] + ' ' + it[1]).join(' · ')));
       box.appendChild(el('small', '', 'Totaal: ' + Profile.pts + ' punten'));
     }
-    $('resTally').textContent = tallyText();
+    $('resTally').textContent = gm.mode === 'race' ? tallyText() : '';
+    const bn = $('btnNext'), ba = $('btnAgain'), bl = $('btnResLeave');
+    bn.hidden = !host || !passed || nx < 0 || (gm.mode === 'coop' && !S.coop);
+    if (nx >= 0) bn.textContent = LV[nx].theme !== d.theme ? '▶ Volgende wereld ' + E.THEMES.find(q => q.id === LV[nx].theme).icon : '▶ Volgend level';
+    ba.hidden = !host; ba.classList.toggle('big', bn.hidden);
+    bl.textContent = gm.mode === 'solo' ? '🗺️ Levels' : host ? '⚙️ Lobby' : '🏠 Stoppen';
+    $('resMsg').textContent = !host ? (gm.mode === 'coop' && !S.coop ? '' : 'Wacht op de host voor het volgende level…')
+      : gm.mode !== 'race' && !passed && (S.coop || gm.mode === 'solo') ? 'Tip: pak onderweg de jerrycans ⛽ en duw de rotsen weg 🪨' : '';
   }
 
   // ---------------------------------------------------------------- netwerk
   const cleanName = n => String(n || '').replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 12) || 'Racer';
   function me() { return { id: Net.myId, name: cleanName(Profile.name), car: Profile.car }; }
-  function randCode() { const A = 'ABCDEFGHJKLMNPRSTUVWXYZ'; let c = ''; for (let i = 0; i < 4; i++) c += A[Math.floor(Math.random() * A.length)]; return c; }
+  function randCode() { let c = ''; for (let i = 0; i < 3; i++) c += CODE_A[Math.floor(Math.random() * CODE_A.length)]; return c; }
   function leaveNet() {
     clearTimeout(Net.joinTimer);
-    const p = Net.peer; Net.peer = null; Net.conns.clear(); Net.hc = null; Net.online = false; Net.host = false; Net.myId = 'me'; Net.code = ''; Net.roster = []; Net.tally = null;
+    const p = Net.peer; Net.peer = null; Net.conns.clear(); Net.hc = null; Net.online = false; Net.host = false; Net.myId = 'me'; Net.code = ''; Net.roster = []; Net.tally = null; Net.qrFor = '';
     if (p) { try { p.destroy(); } catch (e) { /* al weg */ } }
   }
   function setBot(on) {
     const old = Net.roster.find(p => p.id === 'bot');
     Net.roster = Net.roster.filter(p => p.id !== 'bot');
-    if (on) Net.roster.push(old || { id: 'bot', name: 'Bot Bliksem', car: (Profile.car + 1 + Math.floor(Math.random() * (CARS.length - 1))) % CARS.length });
+    if (on) Net.roster.push(old || { id: 'bot', name: 'Robot Bliksem', car: (Profile.car + 1 + Math.floor(Math.random() * (CARS.length - 1))) % CARS.length });
   }
-  function startSolo() { leaveNet(); Net.tally = newTally(); Net.roster = [me()]; setBot(true); showLobby(); }
 
   function hostGame(tries) {
-    if (typeof Peer === 'undefined') { showMenu('Online spelen kan nu niet: de netwerkbibliotheek is niet geladen (geen internet?).'); return; }
+    if (typeof Peer === 'undefined') { showTogether('Samen spelen kan nu niet: geen internet?'); return; }
     leaveNet(); Net.host = true; Net.online = true; Net.myId = 'h'; Net.code = randCode(); Net.tally = newTally();
-    $('menuMsg').textContent = 'Race wordt aangemaakt…';
+    $('togMsg').textContent = 'Spel wordt gemaakt…';
     const peer = new Peer(PEER_PREFIX + Net.code); Net.peer = peer;
-    peer.on('open', () => { if (Net.peer !== peer) return; Net.roster = [me()]; showLobby(); });
+    peer.on('open', () => {
+      if (Net.peer !== peer) return;
+      Net.roster = [me()]; S.lobbyGame = { mode: S.lobbyGame.mode || 'race', diff: Profile.diff };
+      if (S.lobbyGame.mode === 'race' && S.botWanted) setBot(true);
+      S.trackIdx = lastOpen(Profile.theme, lobbyProg()); showLobby();
+    });
     peer.on('connection', c => {
       c.on('data', d => hostData(c, d));
       c.on('close', () => dropGuest(c)); c.on('error', () => dropGuest(c));
@@ -1404,12 +1688,12 @@
       if (Net.peer !== peer) return;
       if (err.type === 'unavailable-id' && (tries || 0) < 4) { hostGame((tries || 0) + 1); return; }
       if (err.type === 'peer-unavailable') return;
-      if (S.mode === 'menu') { leaveNet(); showMenu('Race aanmaken mislukt (' + err.type + '). Controleer de internetverbinding.'); }
+      if (S.mode === 'menu') showTogether('Spel maken mislukt (' + err.type + '). Is er internet?');
     });
     peer.on('disconnected', () => { if (Net.peer === peer) { try { peer.reconnect(); } catch (e) { /* later */ } } });
   }
   function broadcast(msg) { for (const c of Net.conns.values()) { if (c.open) { try { c.send(msg); } catch (e) { /* verbinding weg */ } } } }
-  function broadcastLobby() { for (const c of Net.conns.values()) if (c.open) c.send({ t: 'lobby', you: c.peer, players: Net.roster, track: S.trackIdx, tally: Net.tally }); }
+  function broadcastLobby() { const prog = lobbyProg(); for (const c of Net.conns.values()) if (c.open) c.send({ t: 'lobby', you: c.peer, players: Net.roster, track: S.trackIdx, tally: Net.tally, game: S.lobbyGame, prog: prog }); }
   function dropGuest(c) {
     if (!Net.conns.has(c.peer)) return;
     Net.conns.delete(c.peer); Net.roster = Net.roster.filter(p => p.id !== c.peer);
@@ -1434,12 +1718,12 @@
   }
 
   function joinGame(code) {
-    if (typeof Peer === 'undefined') { showMenu('Online spelen kan nu niet: de netwerkbibliotheek is niet geladen (geen internet?).'); return; }
+    if (typeof Peer === 'undefined') { showTogether('Samen spelen kan nu niet: geen internet?', true); return; }
     leaveNet(); Net.online = true; Net.host = false; Net.code = code;
-    $('menuMsg').textContent = 'Verbinden met race ' + code + '…';
+    $('togMsg').textContent = 'Verbinden met ' + codeIcons(code) + ' …';
     const peer = new Peer(); Net.peer = peer;
-    const fail = msg => { if (Net.peer !== peer) return; leaveNet(); showMenu(msg); };
-    Net.joinTimer = setTimeout(() => { if (S.mode === 'menu') fail('Geen antwoord van race ' + code + '. Klopt de code?'); }, 12000);
+    const fail = msg => { if (Net.peer !== peer) return; showTogether(msg, true); $('joinBox').hidden = false; };
+    Net.joinTimer = setTimeout(() => { if (S.mode === 'menu') fail('Geen spel gevonden met ' + codeIcons(code) + '. Kloppen de dieren?'); }, 12000);
     peer.on('open', () => {
       if (Net.peer !== peer) return;
       const c = peer.connect(PEER_PREFIX + code, { serialization: 'json', reliable: true }); Net.hc = c;
@@ -1447,23 +1731,29 @@
       c.on('data', guestData);
       c.on('close', () => fail('De verbinding met de host is verbroken.'));
     });
-    peer.on('error', err => fail(err.type === 'peer-unavailable' ? 'Geen race gevonden met code ' + code + '.' : 'Verbinden mislukt (' + err.type + ').'));
+    peer.on('error', err => fail(err.type === 'peer-unavailable' ? 'Geen spel gevonden met ' + codeIcons(code) + '. Kloppen de dieren?' : 'Verbinden mislukt (' + err.type + ').'));
   }
   function guestData(d) {
     if (!d || typeof d !== 'object') return;
     if (d.tally) Net.tally = d.tally;
-    if (d.t === 'lobby') { clearTimeout(Net.joinTimer); Net.myId = d.you; Net.roster = d.players; S.trackIdx = d.track | 0; if (S.mode !== 'race' && S.mode !== 'countdown' || S.resultsOpen) showLobby(); }
-    else if (d.t === 'start') { Net.roster = d.players; startRace(clamp(d.track | 0, 0, TRACKS.length - 1), Net.roster); }
+    if (d.t === 'lobby') {
+      clearTimeout(Net.joinTimer); Net.myId = d.you; Net.roster = d.players; S.trackIdx = clamp(d.track | 0, 0, TRACKS.length - 1);
+      if (d.game) S.lobbyGame = { mode: d.game.mode === 'coop' ? 'coop' : 'race', diff: clamp(d.game.diff | 0, 0, 2) };
+      S.lobbyProg = d.prog && typeof d.prog === 'object' ? d.prog : {};
+      if (S.mode !== 'race' && S.mode !== 'countdown' || S.resultsOpen) showLobby();
+    }
+    else if (d.t === 'start') { Net.roster = d.players; startRace(clamp(d.track | 0, 0, TRACKS.length - 1), Net.roster, d.game); }
+    else if (d.t === 'coop') { if ((d.track | 0) === S.trackIdx) applyCoop(!!d.ok); }
     else if (d.t === 'S') { const now = performance.now(); for (const r of S.racers) { if (r.kind === 'remote' && d.p[r.id]) { r.snap = d.p[r.id]; r.snapT = now; } } }
     else if (d.t === 'gone') { const r = S.racers.find(q => q.id === d.id); if (r) r.gone = true; }
     else if (d.t === 'back') { showLobby(); }
-    else if (d.t === 'wait') { $('lobbyMsg').textContent = 'Er is een race bezig; je doet mee met de volgende.'; }
-    else if (d.t === 'full') { leaveNet(); showMenu('Deze race zit vol (4 spelers).'); }
+    else if (d.t === 'wait') { $('togMsg').textContent = 'Je vriend is al aan het rijden; je doet mee met het volgende level.'; }
+    else if (d.t === 'full') { showTogether('Dit spel zit vol (4 spelers).'); }
   }
   const r2 = v => Math.round(v * 100) / 100;
   function snapOf(r) {
     const c = r.car;
-    return [r2(c.x), r2(c.y), Math.round(c.a * 1000) / 1000, r2(c.vx), r2(c.vy), r2(c.w), r2(c.s), c.boostT > 0 ? 1 : 0, r.time || 0, c.dead > 0 ? 1 : 0];
+    return [r2(c.x), r2(c.y), Math.round(c.a * 1000) / 1000, r2(c.vx), r2(c.vy), r2(c.w), r2(c.s), c.boostT > 0 ? 1 : 0, r.time || 0, c.dead > 0 ? 1 : 0, c.out ? 1 : 0];
   }
   setInterval(() => {
     if (!Net.online || (S.mode !== 'race' && S.mode !== 'countdown')) return;
@@ -1491,7 +1781,7 @@
   });
   window.addEventListener('keyup', e => { const k = KEYS[e.code]; if (k) { S.input[k] = false; $(k === 'gas' ? 'pGas' : 'pBrake').classList.remove('down'); } });
   window.addEventListener('blur', () => { S.input.gas = S.input.brake = false; });
-  function doReset() { const m = S.me; if (S.mode === 'race' && m && !m.car.finished && !(m.car.dead > 0)) { S.stats.crashes++; E.respawn(m.car, S.T); } }
+  function doReset() { const m = S.me; if (S.mode === 'race' && m && !m.car.finished && !m.car.out && !(m.car.dead > 0)) { S.stats.crashes++; E.respawn(m.car, S.T); } }
   $('btnReset').onclick = doReset;
   $('btnMute').onclick = () => { Snd.muted = !Snd.muted; $('btnMute').style.opacity = Snd.muted ? 0.4 : 1; };
   function quit() { leaveNet(); showMenu(''); }
@@ -1499,40 +1789,59 @@
   $('btnLeave').onclick = quit;
 
   function readProfile() { Profile.name = cleanName($('name').value); Profile.save(); }
-  $('btnSolo').onclick = () => { Snd.init(); readProfile(); startSolo(); };
+  $('btnSolo').onclick = () => { Snd.init(); readProfile(); showLevels(); };
+  $('btnTogether').onclick = () => { Snd.init(); readProfile(); showTogether(); };
+  $('btnLvlBack').onclick = () => showMenu('');
+  $('btnTogBack').onclick = () => showMenu('');
   $('btnHost').onclick = () => { Snd.init(); readProfile(); hostGame(0); };
-  $('btnJoin').onclick = () => {
-    Snd.init(); readProfile();
-    const code = $('code').value.toUpperCase().replace(/[^A-Z]/g, '');
-    if (code.length !== 4) { $('menuMsg').textContent = 'Vul de code van 4 letters in.'; return; }
-    joinGame(code);
+  $('btnJoinOpen').onclick = () => { Snd.init(); $('joinBox').hidden = false; renderJoin(); };
+  $('btnJoinDel').onclick = () => { joinPick.pop(); renderJoin(); };
+  $('btnJoinGo').onclick = () => { Snd.init(); doJoin(); };
+  $('btnShare').onclick = async () => {
+    const link = shareLink();
+    try { if (navigator.share) { await navigator.share({ title: 'Stuntbaan Duel', text: 'Doe mee met mijn race! ' + codeIcons(Net.code), url: link }); return; } }
+    catch (e) { if (e && e.name === 'AbortError') return; }
+    try { await navigator.clipboard.writeText(link); $('lobbyMsg').textContent = 'Link gekopieerd! Plak hem in een berichtje.'; }
+    catch (e) { $('lobbyMsg').textContent = link; }
   };
-  $('code').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnJoin').click(); });
-  $('botChk').onchange = () => { setBot($('botChk').checked); if (Net.host) broadcastLobby(); showLobby(); };
-  $('btnStart').onclick = () => {
-    if (!authority() || Net.roster.length < 1) return;
-    // de stand loopt per sessie en begint opnieuw na een uur
-    if (!Net.tally || Date.now() - Net.tally.since > 3600e3) Net.tally = newTally();
-    if (Net.host) broadcast({ t: 'start', track: S.trackIdx, players: Net.roster, tally: Net.tally });
-    startRace(S.trackIdx, Net.roster);
+  for (const b of $('modePick').querySelectorAll('button')) b.onclick = () => {
+    if (!authority()) return; Snd.init();
+    S.lobbyGame.mode = b.dataset.mode;
+    if (S.lobbyGame.mode === 'coop') setBot(false); else setBot(S.botWanted);
+    lobbyChanged();
   };
-  $('btnAgain').onclick = () => {
-    if (!authority()) return;
-    if (Net.host) { broadcast({ t: 'back' }); broadcastLobby(); }
-    showLobby();
+  $('botChk').onclick = () => { if (!authority()) return; S.botWanted = !Net.roster.some(p => p.id === 'bot'); setBot(S.botWanted); lobbyChanged(); };
+  $('btnStart').onclick = () => { if (!authority() || Net.roster.length < 1) return; Snd.init(); hostStart(S.trackIdx); };
+  $('btnNext').onclick = () => { const nx = nextLevel(S.trackIdx); if (nx < 0 || !authority()) return; if (S.game.mode === 'solo') startSoloLevel(nx); else hostStart(nx); };
+  $('btnAgain').onclick = () => { if (!authority()) return; if (S.game.mode === 'solo') startSoloLevel(S.trackIdx); else hostStart(S.trackIdx); };
+  $('btnResLeave').onclick = () => {
+    if (S.game.mode === 'solo') showLevels();
+    else if (Net.host) { broadcast({ t: 'back' }); broadcastLobby(); showLobby(); }
+    else quit();
   };
+  window.addEventListener('keydown', e => {
+    if (!S.resultsOpen || e.code !== 'Enter') return;
+    if (!$('btnNext').hidden) $('btnNext').click(); else if (!$('btnAgain').hidden) $('btnAgain').click();
+  });
 
   $('name').value = Profile.name;
-  const codeFromHash = () => { if (location.hash.length === 5) $('code').value = location.hash.slice(1).toUpperCase(); };
-  window.addEventListener('hashchange', codeFromHash); codeFromHash();
+  // link met #CODE (3 dieren): meteen naar meedoen
+  const codeFromHash = () => {
+    const m = location.hash.match(/^#([A-M]{3})$/i); if (!m) return false;
+    joinPick.length = 0; for (const ch of m[1].toUpperCase()) joinPick.push(CODE_A.indexOf(ch));
+    showTogether('Je vriend wacht op je! Tik op Meedoen.', true); $('joinBox').hidden = false; renderJoin();
+    return true;
+  };
+  window.addEventListener('hashchange', codeFromHash);
 
   // voor tests in de browserconsole
   window.__sbd = {
-    S: S, Net: Net, E: E, TRACKS: TRACKS, Profile: Profile, startSolo: startSolo, startRace: startRace, renderGarage: renderGarage,
+    S: S, Net: Net, E: E, TRACKS: TRACKS, Profile: Profile, startRace: startRace, renderGarage: renderGarage,
+    startSoloLevel: startSoloLevel, showLevels: showLevels, showTogether: showTogether, nextLevel: nextLevel, thumb: thumb,
     advance(sec) { const n = Math.round(sec * 240); for (let i = 0; i < n; i++) simTick(); updateVis(0.016, performance.now()); updateParts(0.016); },
     renderMs(n) { const t0 = performance.now(); for (let i = 0; i < (n || 20); i++) render(0.016); return (performance.now() - t0) / (n || 20); }
   };
 
-  showMenu('');
+  if (!codeFromHash()) showMenu('');
   requestAnimationFrame(frame);
 })();

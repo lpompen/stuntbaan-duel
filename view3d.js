@@ -359,6 +359,28 @@
       }
       part(G, S.box, pil, l.cx, gy + l.R * 1.1, zb, hw * 2 + 0.5, 0.25, 0.25);
     }
+    // jerrycans met benzine op de voorste baan (die van jezelf)
+    G.userData.cans = [];
+    const canM = std({ color: col('#e8382f'), roughness: 0.35, metalness: 0.3 }), capM = std({ color: col('#ffd23f'), roughness: 0.4, metalness: 0.4 });
+    const darkM = std({ color: col('#7a0f0c'), roughness: 0.6 });
+    for (const fu of T.fuels || []) {
+      const cg = new T3.Group();
+      part(cg, S.box, canM, 0, 0, 0, 0.9, 1.1, 0.42);
+      part(cg, S.box, darkM, 0, 0, 0.215, 0.62, 0.78, 0.02, false);
+      part(cg, S.box, canM, 0.12, 0.66, 0, 0.42, 0.14, 0.12);
+      part(cg, S.cyl, capM, -0.3, 0.66, 0, 0.11, 0.22, 0.11);
+      const halo = new T3.Sprite(new T3.SpriteMaterial({ map: TEX.soft, color: col('#ffd23f'), blending: T3.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.55 }));
+      halo.scale.set(3, 3, 1); cg.add(halo);
+      cg.position.set(fu.x, -fu.y, -Z[fu.seg]); cg.userData.y0 = -fu.y;
+      G.add(cg); G.userData.cans.push(cg);
+    }
+    // rotsblokken (worden per frame op de plek van jouw eigen rotsen gezet)
+    G.userData.rocks = [];
+    const rockM = std({ color: col(th.pillar === undefined ? '#7d7f88' : '#8a8c96'), flatShading: true, roughness: 0.95 });
+    for (const r of T.rocks || []) {
+      const m = part(G, S.rock, rockM, 0, 0, 0, r.r * 1.05, r.r, r.r * 1.1);
+      m.receiveShadow = true; m.userData.r = r.r; m.userData.s0 = r.s; G.userData.rocks.push(m);
+    }
     // bodem van de ravijnen
     for (const gp of T.gaps) {
       const m = new T3.Mesh(S.plane, new T3.MeshBasicMaterial({ color: col(L.pit) }));
@@ -631,7 +653,7 @@
   };
   V.project = function (x, y, z) { tmp.set(x, -y, -z).project(camera); return { x: (tmp.x * 0.5 + 0.5) * W, y: (-tmp.y * 0.5 + 0.5) * H, behind: tmp.z > 1 }; };
 
-  // f = {x,y,s,lane,sp,vx,vy,inLoop,menu,shake,time}; cars = [{key,vis,design,lane}]
+  // f = {x,y,s,lane,sp,vx,vy,inLoop,menu,shake,time,fuelNext}; cars = [{key,vis,design,lane}]
   V.frame = function (dt, f, cars, parts) {
     const portrait = W < H;
     let wt = clamp((f.menu ? 30 : 21) + (f.inLoop ? 9 : 0) + f.sp * 0.42, 21, 44) * (portrait ? 0.66 : 1);
@@ -656,6 +678,25 @@
       if (v.boost) { const s = 0.8 + Math.random() * 0.6; u.flame.scale.set(s, 0.9 + Math.random() * 0.3, 0.9 + Math.random() * 0.3); }
     }
     for (const [k, g] of carPool) if (!seen.has(k)) g.visible = false;
+    // jerrycans: alleen die je nog niet gepakt hebt, draaiend en zwevend
+    if (current && current.G.userData.cans) {
+      const cans = current.G.userData.cans, nx = f.fuelNext | 0;
+      for (let k = 0; k < cans.length; k++) {
+        const cg = cans[k]; cg.visible = k >= nx;
+        if (cg.visible) { cg.rotation.y = f.time * 2 + k; cg.position.y = cg.userData.y0 + Math.sin(f.time * 3 + k) * 0.15; }
+      }
+    }
+    if (current && current.G.userData.rocks) {
+      const rm = current.G.userData.rocks, T = current.T;
+      for (let k = 0; k < rm.length; k++) {
+        const m = rm[k], st = f.rocks && f.rocks[k], r = m.userData.r, s = st ? st.s : m.userData.s0, offT = st ? st.offT : 0;
+        m.visible = offT < 1.6;
+        if (!m.visible) continue;
+        E.pointAt(T, s, _pt);
+        m.position.set(_pt.x + _pt.ty * r, -(_pt.y - _pt.tx * r) - offT * offT * 9, -V.depthOf(s, 0) + offT * 5);
+        m.rotation.set(offT * 3, k * 1.3, -(s - m.userData.s0) / r);
+      }
+    }
     syncParts(parts);
     TEX.chev.offset.x = -(f.time * 1.6) % 1;
     renderer.render(scene, camera);
